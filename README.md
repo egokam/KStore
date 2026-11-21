@@ -47,6 +47,7 @@ Generated files are written to `dist/`:
 
 - `dist/source.json`
 - `dist/index.html`
+- `dist/source-icon.svg` (KStore landing-page and browser-tab icon; SideStore source JSON has no source-level icon field)
 - `dist/icons/*.png`
 
 The generator validates `source.json` against the vendored official SideStore JSON Schema before atomically replacing `dist/`. If every repository fails or yields no app, the build fails and leaves the previous output intact.

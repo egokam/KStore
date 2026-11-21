@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-labelledby="title">
+  <title id="title">KStore source icon</title>
+  <rect width="640" height="640" fill="#000"/>
+  <path fill="#fff" d="
+    M278 140h81q10 0 10 10v9h10q11 0 11 11v50h9q11 0 11 11v8q0 11-11 11h-9v1q0 10-10 10h-29v10h-19q-11 0-11 11v18h-10v20h40v20h9q11 0 11 11v18q0 11-11 11h-39q-10 0-10 10v20h29q11 0 11 11v8q0 11-11 11h-29v10h9q11 0 11 11v10h9q11 0 11 11v8q0 10-11 10h-29v2h-20v-10h-11v-10h-10v-10h-10q-10 0-10-10v-10h-10q-10 0-10-10v-10h-10q-10 0-10-10v-49h-9q-11 0-11-11V191q0-10 11-10h9v-10q0-11 11-11h19v-10q0-10 10-10h80z"/>
+  <path fill="#000" d="
+    M228 261h71q10 0 10 10v19q0 10-10 10h-10v10q0 10-10 10h-41q-10 0-10-10v-10h10q10 0 10-10v-5h-10q-10 0-10-10z"/>
+  <rect x="350" y="340" width="20" height="40" fill="#000"/>
+  <rect x="370" y="320" width="60" height="60" rx="8" fill="#fff"/>
+</svg>

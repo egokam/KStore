@@ -873,6 +873,7 @@ def _html_page(source: dict[str, Any], source_url: str, version_count: int) -> s
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111318">
+  <link rel="icon" type="image/svg+xml" href="./source-icon.svg">
   <title>{safe_name} · SideStore source</title>
   <style>
     :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }}
@@ -880,6 +881,8 @@ def _html_page(source: dict[str, Any], source_url: str, version_count: int) -> s
     main {{ width: min(680px, calc(100% - 40px)); padding: 42px 0; }}
     .card {{ border: 1px solid #343b49; border-radius: 24px; padding: 30px; background: #171b24ed; box-shadow: 0 24px 90px #0008; }}
     .eyebrow {{ color: #8db6ff; letter-spacing: .16em; text-transform: uppercase; font-size: 12px; font-weight: 700; }}
+    .source-brand {{ display: flex; align-items: center; gap: 14px; }}
+    .source-brand img {{ width: 52px; height: 52px; border: 1px solid #343b49; border-radius: 14px; }}
     h1 {{ font-size: clamp(38px, 8vw, 64px); letter-spacing: -.06em; margin: 12px 0; }}
     p {{ color: #aeb8c8; line-height: 1.65; }}
     a {{ display: inline-block; margin: 12px 10px 0 0; padding: 12px 16px; border-radius: 12px; background: #dce8ff; color: #101522; text-decoration: none; font-weight: 700; }}
@@ -893,7 +896,7 @@ def _html_page(source: dict[str, Any], source_url: str, version_count: int) -> s
 </head>
 <body>
   <main><section class="card">
-    <div class="eyebrow">Automated SideStore source</div>
+    <div class="source-brand"><img src="./source-icon.svg" alt="KStore source icon"><span class="eyebrow">Automated SideStore source</span></div>
     <h1>{safe_name}</h1>
     <p>{len(source['apps'])} app(s) · {version_count} IPA version(s) · Refreshed by GitHub Actions every six hours</p>
     <a href="{html.escape(add_url, quote=True)}">Add to SideStore</a>
@@ -939,6 +942,7 @@ def write_outputs(
 
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
     try:
+        shutil.copyfile(ROOT / "assets" / "source-icon.svg", staging / "source-icon.svg")
         icon_directory = staging / "icons"
         icon_directory.mkdir()
         for app in source["apps"]:
