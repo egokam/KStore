@@ -349,6 +349,133 @@ def _read_app_icon(archive: zipfile.ZipFile, members: list[zipfile.ZipInfo], app
     return archive.read(selected)
 
 
+def _is_png(content: bytes) -> bool:
+    if len(content) < 24 or not content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return False
+    width, height = struct.unpack(">II", content[16:24])
+    return 0 < width <= 8192 and 0 < height <= 8192
+
+
+def _repository_icon_candidate(tree: list[dict[str, Any]]) -> dict[str, Any] | None:
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    excluded = {"android", "adaptive", "foreground", "background", "monochrome", "favicon", "screenshot"}
+    for item in tree:
+        if item.get("type") != "blob" or not isinstance(item.get("path"), str):
+            continue
+        path = item["path"]
+        lower = path.casefold()
+        basename = PurePosixPath(lower).name
+        size = item.get("size")
+        if not basename.endswith(".png") or not isinstance(size, int) or size <= 0 or size > MAX_ICON_SIZE:
+            continue
+        if any(token in lower for token in excluded):
+            continue
+        if basename in {"app-icon.png", "app_icon.png"}:
+            score = 120
+        elif basename == "icon.png":
+            score = 110
+        elif basename in {"logo.png", "app.png"}:
+            score = 70
+        else:
+            continue
+        if "/assets/" in f"/{lower}/" or lower.startswith("assets/"):
+            score += 10
+        ranked.append((score, item))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda pair: (pair[0], pair[1]["path"].casefold()), reverse=True)
+    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+        print(f"    multiple equally ranked repository icons; using generated fallback instead.")
+        return None
+    return ranked[0][1]
+
+
+def _download_repository_icon(url: str, expected_size: int) -> bytes:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "raw.githubusercontent.com":
+        raise BuildError("Repository icon URL is not on raw.githubusercontent.com.")
+    if expected_size <= 0 or expected_size > MAX_ICON_SIZE:
+        raise BuildError("Repository icon exceeds the image size limit.")
+    opener = urllib.request.build_opener(GitHubAssetRedirectHandler)
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with opener.open(request, timeout=45) as response:
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > MAX_ICON_SIZE:
+                raise BuildError("Repository icon response exceeds the image size limit.")
+            content = response.read(MAX_ICON_SIZE + 1)
+    except urllib.error.HTTPError as exc:
+        raise BuildError(f"Repository icon download returned HTTP {exc.code}.") from exc
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        if isinstance(exc, BuildError):
+            raise
+        raise BuildError(f"Repository icon download failed: {exc}") from exc
+    if len(content) != expected_size or len(content) > MAX_ICON_SIZE or not _is_png(content):
+        raise BuildError("Repository icon is not a valid PNG of the reported size.")
+    return content
+
+
+def fetch_repository_icon(repository: dict[str, Any], token: str | None, cache: MetadataCache) -> Path | None:
+    full_name = repository.get("full_name")
+    repository_id = repository.get("id")
+    branch = repository.get("default_branch")
+    if not isinstance(full_name, str) or not isinstance(repository_id, int) or not isinstance(branch, str):
+        return None
+    identity = {
+        "kind": "repository_icon",
+        "repository_id": repository_id,
+        "default_branch": branch,
+        "pushed_at": repository.get("pushed_at"),
+    }
+    cached = cache.get(identity)
+    if cached and cached.get("cached_icon"):
+        print("    repository icon cache hit")
+        return Path(cached["cached_icon"])
+    tree_url = (
+        f"{API}/repos/{urllib.parse.quote(full_name, safe='/')}/git/trees/"
+        f"{urllib.parse.quote(branch, safe='')}?recursive=1"
+    )
+    tree_response = request_json(tree_url, token)
+    tree = tree_response.get("tree", []) if isinstance(tree_response, dict) else []
+    if not isinstance(tree, list):
+        return None
+    candidate = _repository_icon_candidate(tree)
+    if candidate is None:
+        return None
+    owner, name = full_name.split("/", 1)
+    raw_path = "/".join(urllib.parse.quote(part, safe="") for part in candidate["path"].split("/"))
+    raw_url = (
+        "https://raw.githubusercontent.com/"
+        f"{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(name, safe='')}/"
+        f"{urllib.parse.quote(branch, safe='/')}/{raw_path}"
+    )
+    content = _download_repository_icon(raw_url, int(candidate["size"]))
+    cached = cache.put(identity, {"path": candidate["path"]}, content)
+    print(f"    using repository icon: {candidate['path']}")
+    return Path(cached["cached_icon"]) if cached.get("cached_icon") else None
+
+
+def discover_developer_name(repository: dict[str, Any], token: str | None) -> str:
+    owner = repository.get("owner") or {}
+    if not isinstance(owner, dict):
+        return "Unknown developer"
+    login = owner.get("login")
+    existing_name = owner.get("name")
+    if isinstance(existing_name, str) and existing_name.strip():
+        return existing_name.strip()
+    if not isinstance(login, str) or not login:
+        return "Unknown developer"
+    endpoint = "orgs" if owner.get("type") == "Organization" else "users"
+    try:
+        profile = request_json(f"{API}/{endpoint}/{urllib.parse.quote(login, safe='')}", token)
+        display_name = profile.get("name") if isinstance(profile, dict) else None
+        if isinstance(display_name, str) and display_name.strip():
+            return display_name.strip()
+    except BuildError as exc:
+        print(f"    could not read developer display name; using GitHub login: {exc}")
+    return login
+
+
 def inspect_ipa(path: Path, repository_name: str) -> tuple[dict[str, Any], bytes | None]:
     try:
         if path.stat().st_size > MAX_IPA_SIZE:
@@ -915,7 +1042,13 @@ def build_source(repositories: list[str], token: str | None, base_url: str, cach
             cached_latest = cache.get(latest_identity)
             icon_sources[bundle_id] = Path(cached_latest["cached_icon"]) if cached_latest and cached_latest.get("cached_icon") else None
             if icon_sources[bundle_id] is None:
-                print(f"    no usable Info.plist app icon; publishing generated fallback icon.")
+                try:
+                    icon_sources[bundle_id] = fetch_repository_icon(repository, token, cache)
+                except BuildError as exc:
+                    print(f"    repository icon lookup failed; using generated fallback: {exc}")
+                if icon_sources[bundle_id] is None:
+                    print("    no IPA or repository icon found; publishing generated fallback icon.")
+            app["developerName"] = discover_developer_name(repository, token)
             seen_bundle_ids.add(bundle_id)
             apps.append(app)
             indexed_versions += len(app["versions"])

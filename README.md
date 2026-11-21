@@ -4,7 +4,7 @@ KStore builds and publishes a SideStore source from public GitHub repositories. 
 
 ## What KStore discovers
 
-For each repository, KStore uses GitHub's Releases API, with full pagination, to find every published release. It includes prereleases, ignores drafts, and inspects IPA assets directly without executing them. From `Payload/*.app/Info.plist`, it reads the actual bundle identifier, display name, short version, build version, device families, and declared app icon files. It never infers a bundle identifier from a repository name or release tag.
+For each repository, KStore uses GitHub's Releases API, with full pagination, to find every published release. It includes prereleases, ignores drafts, and inspects IPA assets directly without executing them. From `Payload/*.app/Info.plist`, it reads the actual bundle identifier, display name, short version, build version, device families, and declared app icon files. If the IPA icon is unavailable, it looks for a conventional PNG app icon in the repository. It never infers a bundle identifier from a repository name or release tag.
 
 The source contains historical IPA versions ordered by release date, with direct GitHub asset URLs, GitHub asset sizes, and release notes. Repository description and owner provide the app description and developer label when those are available.
 
@@ -67,4 +67,4 @@ GitHub Pages must use **GitHub Actions** as its publishing source. The workflow 
 
 The generated source follows the current official SideStore source schema. SideStore's schema has an app-level `beta` flag but no per-version prerelease field. KStore sets that flag when the newest indexed release is a prerelease; older prereleases remain in the version history without an unsupported field.
 
-Modern icons stored only in Apple's compiled `Assets.car` cannot be extracted with the standard library. When no declared PNG app icon can be read, KStore publishes a generated fallback PNG. The source does not claim IPA signing, device compatibility beyond the app's declared device families, or safety; users should only add trusted repositories.
+Modern icons stored only in Apple's compiled `Assets.car` cannot be extracted with the standard library. If no declared IPA icon or conventional repository PNG can be read, KStore publishes a generated fallback PNG. The source does not claim IPA signing, device compatibility beyond the app's declared device families, or safety; users should only add trusted repositories.

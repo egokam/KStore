@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -93,6 +94,20 @@ class IPAInspectionTests(unittest.TestCase):
     def test_fallback_icon_is_a_png(self) -> None:
         image = build_source.fallback_icon("KStore")
         self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_repository_icon_finder_prefers_conventional_app_icon(self) -> None:
+        tree = [
+            {"type": "blob", "path": "assets/favicon.png", "size": 100},
+            {"type": "blob", "path": "assets/icons/amber.png", "size": 1000},
+            {"type": "blob", "path": "assets/icon.png", "size": 5000},
+        ]
+        selected = build_source._repository_icon_candidate(tree)
+        self.assertEqual(selected["path"], "assets/icon.png")
+
+    def test_developer_display_name_is_discovered_from_github_profile(self) -> None:
+        repository = {"owner": {"login": "egokam", "type": "User"}}
+        with patch.object(build_source, "request_json", return_value={"name": "Example Developer"}):
+            self.assertEqual(build_source.discover_developer_name(repository, None), "Example Developer")
 
 
 class CacheAndSchemaTests(unittest.TestCase):
