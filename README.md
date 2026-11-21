@@ -1,112 +1,70 @@
-# EgoStore
+# KStore
 
-An automated GitHub Releases → SideStore source generator hosted on GitHub Pages.
+KStore builds and publishes a SideStore source from public GitHub repositories. The only per-app configuration is the repository URL in [`repositories.json`](repositories.json).
 
-## What it does
+## What KStore discovers
 
-- Reads a curated list of GitHub repositories from `repositories.json`.
-- Fetches every **published** GitHub release, including prereleases.
-- Finds `.ipa` release assets and keeps their original GitHub download URLs.
-- Builds a SideStore-compatible source with all eligible versions, newest first.
-- Publishes `source.json` to GitHub Pages every 6 hours, on pushes, or manually.
+For each repository, KStore uses GitHub's Releases API, with full pagination, to find every published release. It includes prereleases, ignores drafts, and inspects IPA assets directly without executing them. From `Payload/*.app/Info.plist`, it reads the actual bundle identifier, display name, short version, build version, device families, and declared app icon files. It never infers a bundle identifier from a repository name or release tag.
 
-> GitHub's public Releases API returns published releases. Draft releases are not included.
-> Releases without an IPA asset are skipped because SideStore needs a direct installable IPA URL.
+The source contains historical IPA versions ordered by release date, with direct GitHub asset URLs, GitHub asset sizes, and release notes. Repository description and owner provide the app description and developer label when those are available.
 
-## 1. Configure your apps
+## Configure repositories
 
-Edit `repositories.json`. Each entry represents one app listing in SideStore.
+Add or remove public GitHub repository URLs in this format:
 
 ```json
 {
-  "repository": "owner/repository",
-  "name": "Example App",
-  "bundleIdentifier": "com.example.app",
-  "developerName": "Example Developer",
-  "iconURL": "https://example.com/icon.png",
-  "localizedDescription": "A short description of the app.",
-  "assetPattern": ".*\\.ipa$",
-  "versionOverrides": {
-    "v1.2.0": "1.2.0"
-  }
+  "repositories": [
+    "https://github.com/owner/repository",
+    "https://github.com/another-owner/app"
+  ]
 }
 ```
 
-Required metadata:
-- `repository`: GitHub `owner/repo`.
-- `name`: display name.
-- `bundleIdentifier`: must match the app's `CFBundleIdentifier`.
-- `developerName`.
-- `iconURL`: direct HTTPS image URL.
+Only direct URLs in the form `https://github.com/owner/repository` are accepted. Private repositories, malformed URLs, repositories with no inspectable published IPA releases, and duplicate app bundle identifiers are reported in the workflow summary. A broken repository does not prevent other configured repositories from being indexed.
 
-Optional:
-- `localizedDescription`
-- `assetPattern`: regular expression used to select one IPA if a release contains multiple IPA files. Defaults to the first `.ipa` asset.
-- `versionOverrides`: map GitHub tag names to the app's actual `CFBundleShortVersionString`.
+When a release contains multiple IPAs, KStore inspects each one and prefers a build whose `UIDeviceFamily` includes both iPhone and iPad. If equally suitable files contain conflicting app metadata, that release is reported as ambiguous and skipped rather than selecting an arbitrary variant. IPA downloads over 1 GiB, malformed archives, missing version metadata, and unsafe ZIP paths are rejected.
 
-### Important version compatibility note
+KStore caches extracted metadata and icons by repository, release, and asset identity. The cache never stores IPA binaries. A changed asset ID, URL, size, or update timestamp produces a cache miss.
 
-SideStore uses the first compatible item in `versions` as the latest version, and the version string should match the app's `CFBundleShortVersionString`. EgoStore sorts by GitHub `published_at` newest-first. Git tags do not always equal the app's internal version, so add `versionOverrides` when needed. The generator deliberately does not guess the IPA's internal version.
+## Build locally
 
-Each repository must represent a distinct app / bundle identifier. A source should not contain duplicate `bundleIdentifier` values.
-
-## 2. Publish
-
-1. Create a **public** GitHub repository named `EgoStore` (or any name).
-2. Upload the contents of this project to its default branch (`main`).
-3. In GitHub, open **Settings → Pages**.
-4. Set **Build and deployment → Source** to **GitHub Actions**.
-5. Open **Actions**, enable workflows if GitHub asks, then run **Build EgoStore source** once.
-6. When the workflow succeeds, GitHub Pages will show the deployed site.
-
-The source URL will be:
-
-`https://YOUR-GITHUB-USERNAME.github.io/YOUR-REPOSITORY/source.json`
-
-Add that URL in SideStore → Sources → `+`.
-
-The landing page at `/` contains a link to the source JSON.
-
-## 3. Automation
-
-- Scheduled run: every 6 hours (GitHub Actions cron is UTC).
-- Run on every push to `main`.
-- Run manually from Actions → Build EgoStore source → Run workflow.
-
-The workflow uses GitHub's automatically provided `GITHUB_TOKEN`; no personal access token is required for public repositories under normal rate limits.
-
-## 4. Local preview
-
-Requires Python 3.10+.
+Python 3.10 or newer is required.
 
 ```bash
-python scripts/build_source.py
+python -m pip install -r requirements.txt
 ```
 
-The generated files are written to `dist/`:
+The builder needs the actual HTTPS base URL returned by GitHub Pages. Get it from the repository's Pages API or set it for local runs:
+
+```bash
+KSTORE_BASE_URL=https://egokam.github.io/KStore python scripts/build_source.py
+```
+
+An optional `GITHUB_TOKEN` or `GH_TOKEN` can raise GitHub API limits. It is sent only to `api.github.com`; IPA downloads are unauthenticated, including redirects to GitHub's asset hosts.
+
+Generated files are written to `dist/`:
+
 - `dist/source.json`
 - `dist/index.html`
+- `dist/icons/*.png`
 
-To use a GitHub token locally (optional, helps with API rate limits):
+The generator validates `source.json` against the vendored official SideStore JSON Schema before atomically replacing `dist/`. If every repository fails or yields no app, the build fails and leaves the previous output intact.
+
+Run the offline tests with:
 
 ```bash
-GITHUB_TOKEN=github_pat_xxx python scripts/build_source.py
+python -m unittest discover -s tests -v
 ```
 
-## 5. Known limitations
+## GitHub Pages automation
 
-- Only published releases with at least one `.ipa` asset are included.
-- If a release contains multiple IPA files, one is selected using `assetPattern` (or the first IPA by asset name).
-- GitHub release tag names are used as versions unless overridden. They must match the app's internal short version for SideStore updates to work correctly.
-- `size` is the GitHub asset size in bytes.
-- This does not verify that an IPA is signed, compatible with your iOS version, or safe to install. Only add repositories and apps you trust.
-- GitHub Pages updates after the workflow completes; scheduled jobs may start a little later than their scheduled time.
+The `Build KStore source` workflow runs every six hours, when the catalog, builder, schema, requirements, or tests change on `main`, and when manually dispatched. It restores metadata from GitHub Actions cache, validates the output, uploads the Pages artifact, then deploys it. A failed build never reaches the deploy job, so it cannot replace the last successful Pages deployment.
 
-## Source format
+GitHub Pages must use **GitHub Actions** as its publishing source. The workflow reads the configured Pages URL from GitHub's API and uses that URL for the source, icons, and landing page. The landing page includes an **Add to SideStore** link.
 
-The generated JSON follows SideStore's AltStore-compatible source structure:
-- top-level `name`, `identifier`, `apps`
-- app metadata including `bundleIdentifier`, `developerName`, `iconURL`
-- `versions[]` in reverse chronological order, with `version`, `date`, `downloadURL`, `size`, and release notes.
+## Format and known limitations
 
-See the [SideStore app sources guide](https://docs.sidestore.io/docs/advanced/app-sources).
+The generated source follows the current official SideStore source schema. SideStore's schema has an app-level `beta` flag but no per-version prerelease field. KStore sets that flag when the newest indexed release is a prerelease; older prereleases remain in the version history without an unsupported field.
+
+Modern icons stored only in Apple's compiled `Assets.car` cannot be extracted with the standard library. When no declared PNG app icon can be read, KStore publishes a generated fallback PNG. The source does not claim IPA signing, device compatibility beyond the app's declared device families, or safety; users should only add trusted repositories.
