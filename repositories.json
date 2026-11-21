@@ -1,0 +1,19 @@
+{
+  "source": {
+    "name": "EgoStore",
+    "subtitle": "Automatically updated apps from GitHub Releases.",
+    "identifier": "com.egokam.egostore"
+  },
+  "apps": [
+    {
+      "repository": "OWNER/REPOSITORY",
+      "name": "Example App",
+      "bundleIdentifier": "com.example.app",
+      "developerName": "Developer Name",
+      "iconURL": "https://example.com/icon.png",
+      "localizedDescription": "Replace this example with your app details.",
+      "assetPattern": ".*\\.ipa$",
+      "versionOverrides": {}
+    }
+  ]
+}
